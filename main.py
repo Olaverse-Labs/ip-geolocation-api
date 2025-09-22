@@ -284,22 +284,26 @@ def country_lookup(request: Request, ip: Optional[str] = Query(None, description
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/reverse_dns")
-def reverse_dns(request: Request, ip: Optional[str] = Query(None, description="IP address to lookup reverse DNS (PTR record)")):
+def reverse_dns(request: Request, ip: Optional[str] = Query(None, description="IP address or domain to lookup reverse DNS (PTR record)")):
     user_agent = request.headers.get("user-agent", "-")
     if not ip:
         ip = request.client.host
-    if not validate_ip(ip):
-        log_request("/reverse_dns", ip, "invalid_ip", user_agent)
+    resolved_ip = resolve_domain_to_ip(ip)
+    if not resolved_ip:
+        log_request("/reverse_dns", ip, "invalid_ip_or_domain", user_agent)
+        raise HTTPException(status_code=400, detail="Invalid IP address or domain name could not be resolved.")
+    if not validate_ip(resolved_ip):
+        log_request("/reverse_dns", resolved_ip, "invalid_ip", user_agent)
         raise HTTPException(status_code=400, detail="Invalid IP address format.")
     try:
-        ptr_record = socket.gethostbyaddr(ip)[0]
-        log_request("/reverse_dns", ip, "success", user_agent)
-        return {"ip": ip, "ptr_record": ptr_record}
+        ptr_record = socket.gethostbyaddr(resolved_ip)[0]
+        log_request("/reverse_dns", resolved_ip, "success", user_agent)
+        return {"ip": resolved_ip, "ptr_record": ptr_record}
     except socket.herror:
-        log_request("/reverse_dns", ip, "not_found", user_agent)
+        log_request("/reverse_dns", resolved_ip, "not_found", user_agent)
         raise HTTPException(status_code=404, detail="PTR record not found for this IP.")
     except Exception as e:
-        log_request("/reverse_dns", ip, f"error: {str(e)}", user_agent)
+        log_request("/reverse_dns", resolved_ip, f"error: {str(e)}", user_agent)
         raise HTTPException(status_code=500, detail=str(e))
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static") 
